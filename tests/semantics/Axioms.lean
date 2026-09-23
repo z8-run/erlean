@@ -13,6 +13,7 @@ import Erlean.Core.Maps
 import Erlean.Core.MapPatterns
 import Erlean.Semantics.Maps
 import Erlean.Semantics.Lists
+import Erlean.Core.TermOrder
 
 import Erlean.Logic.Segment
 import Erlean.Logic.Frames
@@ -99,3 +100,5 @@ import Erlean.Examples.Dijkstra.Correctness
 #print axioms Erlean.Semantics.appendValues_list
 #print axioms Erlean.Semantics.builtin_append_list
 #print axioms Erlean.Semantics.builtin_append_improper
+#print axioms Erlean.Core.MapKey.termCompare_self
+#print axioms Erlean.Core.FiniteMap.termOrdered_length

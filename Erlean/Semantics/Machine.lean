@@ -1,5 +1,6 @@
 import Erlean.Core.Syntax
 import Erlean.Core.FiniteMap
+import Erlean.Core.TermOrder
 import Erlean.Core.Match
 import Erlean.Core.PatternObservation
 import Erlean.Semantics.Execution
@@ -165,17 +166,20 @@ def listValues : Value → Option (List Value)
 /-- Proper-list length. An improper tail or a non-list is outside this profile. -/
 def properLength (value : Value) : Option Nat := (listValues value).map List.length
 
-/-- Flatten an iolist into its byte bits. Elements are bytes in `0 .. 255`,
-    whole-byte binaries, or nested iolists. An improper tail, an out-of-range
-    integer, a bit string off a byte boundary, or any other operand is invalid. -/
-def iolistValues : Value → Option (List Bool)
+/-- Flatten an iolist or binary into its byte bits. List elements are bytes in
+    `0 .. 255`, whole-byte binaries, or nested iolists. A list tail must be `[]`
+    or a whole-byte binary. `element` is true exactly for list-element positions:
+    a byte integer is valid only there, so neither a bare integer operand nor an
+    integer list tail is accepted. An improper tail, an out-of-range integer, a
+    bit string off a byte boundary, or any other operand is invalid. -/
+def iolistValues (element : Bool) : Value → Option (List Bool)
   | .integer value =>
-    if 0 ≤ value ∧ value < 256 then some (encodeByte value) else none
+    if element ∧ 0 ≤ value ∧ value < 256 then some (encodeByte value) else none
   | .bitstring bits => if bits.length % 8 == 0 then some bits else none
   | .nil => some []
   | .cons head tail => do
-    let first ← iolistValues head
-    let rest ← iolistValues tail
+    let first ← iolistValues true head
+    let rest ← iolistValues false tail
     pure (first ++ rest)
   | _ => none
 
@@ -216,9 +220,9 @@ def mapBuiltin (state : LocalState) (name : String) (args : Values) :
       ret (.map (rightEntries.foldl (fun entries pair =>
         FiniteMap.insert pair.1 pair.2 entries) leftEntries))
   | "keys", [map] => withMap state map fun entries =>
-    ret ((entries.map (fun entry => entry.1.toValue)).foldr Value.cons .nil)
+    ret (((FiniteMap.termOrdered entries).map (fun entry => entry.1.toValue)).foldr Value.cons .nil)
   | "values", [map] => withMap state map fun entries =>
-    ret ((entries.map Prod.snd).foldr Value.cons .nil)
+    ret (((FiniteMap.termOrdered entries).map Prod.snd).foldr Value.cons .nil)
   | "with", [keys, map] => withMap state map fun entries =>
     match listValues keys with
     | none => badarg
@@ -229,12 +233,17 @@ def mapBuiltin (state : LocalState) (name : String) (args : Values) :
         ret (.map (entries.filter (fun entry => wantedKeys.contains entry.1)))
   | "iterator", [map, order] => withMap state map fun entries =>
     match order with
-    | .atom "ordered" => ret (.iterator entries)
-    | .atom "reversed" => ret (.iterator entries.reverse)
+    | .atom "ordered" => ret (.iterator (FiniteMap.termOrdered entries))
+    | .atom "reversed" => ret (.iterator (FiniteMap.termOrdered entries).reverse)
+    -- `undefined` requests OTP's unspecified order; term order is one valid choice.
+    | .atom "undefined" => ret (.iterator (FiniteMap.termOrdered entries))
+    -- A two-argument ordering fun is valid in OTP but is not executed here.
+    | .function _ _ _ | .closure _ _ _ _ => unsupported "maps:iterator/2 with an ordering fun"
     | _ => badarg
   | "next", [.iterator entries] => match entries with
     | [] => ret (.atom "none")
     | (key, value) :: rest => ret (.tuple [key.toValue, value, .iterator rest])
+  | "next", [.atom "none"] => ret (.atom "none")
   | "next", [_] => badarg
   | _, _ => unsupported s!"BIF maps:{name}/{args.length}"
 
@@ -294,9 +303,9 @@ def extendedBuiltin (state : LocalState) (name : String) (args : Values) :
   | "is_float" => match args with
     | [v] => ret (boolean (match v with | .floatBits _ => true | _ => false))
     | _ => unknown
+  -- OTP rounds a partial trailing byte up rather than rejecting it.
   | "byte_size" => match args with
-    | [.bitstring bits] =>
-      if bits.length % 8 == 0 then ret (.integer (Int.ofNat (bits.length / 8))) else badarg
+    | [.bitstring bits] => ret (.integer (Int.ofNat ((bits.length + 7) / 8)))
     | [_] => badarg
     | _ => unknown
   | "length" => match args with
@@ -314,7 +323,7 @@ def extendedBuiltin (state : LocalState) (name : String) (args : Values) :
     | [_] => badarg
     | _ => unknown
   | "iolist_to_binary" => match args with
-    | [v] => match iolistValues v with
+    | [v] => match iolistValues false v with
       | some bits => ret (.bitstring bits)
       | none => badarg
     | _ => unknown

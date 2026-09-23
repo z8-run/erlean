@@ -1,4 +1,5 @@
 import Erlean.Core.Scope
+import Erlean.Core.TermOrder
 import Erlean.Core.Equality
 import Erlean.Core.Maps
 import Erlean.Core.ValueRules

@@ -154,7 +154,11 @@ def main : IO Unit := do
   expect [] (callBif "byte_size" [.lit (.bitstring [])])
     (.returned [.integer 0]) "byte_size accepts the empty binary"
   expect [] (callBif "byte_size" [.lit (.bitstring [true])])
-    (.raised ⟨.error, .atom "badarg"⟩) "byte_size rejects a partial byte"
+    (.returned [.integer 1]) "byte_size rounds a partial byte up"
+  expect [] (callBif "byte_size" [.lit (.bitstring (List.replicate 9 true))])
+    (.returned [.integer 2]) "byte_size rounds a partial trailing byte up"
+  expect [] (callBif "byte_size" [.lit (.integer 1)])
+    (.raised ⟨.error, .atom "badarg"⟩) "byte_size rejects a non-bitstring"
   expect [] (callBif "length" [.lit (listValue [.integer 1, .integer 2, .integer 3])])
     (.returned [.integer 3]) "length counts proper list elements"
   expect [] (callBif "length" [.lit (.cons (.integer 1) (.atom "tail"))])
@@ -175,24 +179,53 @@ def main : IO Unit := do
     (.raised ⟨.error, .atom "badarg"⟩) "iolist_to_binary rejects an out-of-range byte"
   expect [] (callBif "iolist_to_binary" [.lit (.cons (.integer 65) (.atom "tail"))])
     (.raised ⟨.error, .atom "badarg"⟩) "iolist_to_binary rejects an improper tail"
+  expect [] (callBif "iolist_to_binary" [.lit (.integer 65)])
+    (.raised ⟨.error, .atom "badarg"⟩) "iolist_to_binary rejects a bare byte integer"
+  expect [] (callBif "iolist_to_binary" [.lit (.cons (.integer 65) (.integer 66))])
+    (.raised ⟨.error, .atom "badarg"⟩) "iolist_to_binary rejects an integer tail"
+  expect [] (callBif "iolist_to_binary" [.lit (.cons (.integer 65) (bytes "B"))])
+    (.returned [bytes "AB"]) "iolist_to_binary accepts a binary tail"
+  expect [] (callBif "iolist_to_binary" [.lit (bytes "AB")])
+    (.returned [bytes "AB"]) "iolist_to_binary accepts a bare binary"
   let twoKeys : Value := .map [(.atom "a", .integer 1), (.atom "b", .integer 2)]
   expect [] (callMapBif "next" [callMapBif "iterator" [.lit twoKeys, .lit (.atom "ordered")]])
     (.returned [.tuple [.atom "a", .integer 1, .iterator [(.atom "b", .integer 2)]]])
-    "ordered iteration yields canonical entry order"
+    "ordered iteration yields term order"
   expect [] (callMapBif "next" [callMapBif "iterator" [.lit twoKeys, .lit (.atom "reversed")]])
     (.returned [.tuple [.atom "b", .integer 2, .iterator [(.atom "a", .integer 1)]]])
-    "reversed iteration yields reverse canonical order"
+    "reversed iteration yields reverse term order"
   expect [] (callMapBif "next" [callMapBif "iterator" [.lit (.map []), .lit (.atom "ordered")]])
     (.returned [.atom "none"]) "an exhausted iterator reports none"
+  -- Canonical storage order puts nonnegative integers before negative ones and
+  -- nil before tuples; Erlang term order is the reverse in both cases.
+  let mixedKeys : Value := .map (FiniteMap.insert (.integer (-1)) (.atom "negative")
+    (FiniteMap.insert (.integer 2) (.atom "positive")
+    (FiniteMap.insert .nil (.atom "nil") (FiniteMap.insert (.tuple []) (.atom "tuple") []))))
+  expect [] (callMapBif "keys" [.lit mixedKeys])
+    (.returned [listValue [.integer (-1), .integer 2, .tuple [], .nil]])
+    "maps:keys lists keys in Erlang term order"
+  expect [] (callMapBif "values" [.lit mixedKeys])
+    (.returned [listValue [.atom "negative", .atom "positive", .atom "tuple", .atom "nil"]])
+    "maps:values follows Erlang key term order"
+  expect [] (callMapBif "next" [callMapBif "iterator" [.lit mixedKeys, .lit (.atom "ordered")]])
+    (.returned [.tuple [.integer (-1), .atom "negative", .iterator
+      [(.integer 2, .atom "positive"), (.tuple [], .atom "tuple"), (.nil, .atom "nil")]]])
+    "ordered iteration starts at the least key in Erlang term order"
+  expect [] (callMapBif "next" [callMapBif "iterator" [.lit mixedKeys, .lit (.atom "reversed")]])
+    (.returned [.tuple [.nil, .atom "nil", .iterator
+      [(.tuple [], .atom "tuple"), (.integer 2, .atom "positive"), (.integer (-1), .atom "negative")]]])
+    "reversed iteration starts at the greatest key in Erlang term order"
+  expect [] (callMapBif "next" [.lit (.atom "none")])
+    (.returned [.atom "none"]) "maps:next accepts the exhausted iterator none"
   expect [] (callMapBif "next" [.lit (.atom "not_an_iterator")])
     (.raised ⟨.error, .atom "badarg"⟩) "maps:next rejects a non-iterator operand"
   expect [] (callMapBif "iterator" [.lit twoKeys, .lit (.atom "sideways")])
     (.raised ⟨.error, .atom "badarg"⟩) "maps:iterator rejects an unknown order"
   expect [] (callMapBif "keys" [.lit twoKeys])
-    (.returned [listValue [.atom "a", .atom "b"]]) "maps:keys lists canonical keys"
+    (.returned [listValue [.atom "a", .atom "b"]]) "maps:keys lists atom keys in term order"
   expect [] (callMapBif "values" [.lit twoKeys])
     (.returned [listValue [.integer 1, .integer 2]])
-    "maps:values lists values in canonical key order"
+    "maps:values lists values in key term order"
   expect [] (callMapBif "with" [.lit (listValue [.atom "b"]), .lit twoKeys])
     (.returned [.map [(.atom "b", .integer 2)]]) "maps:with keeps only named keys"
   expect [] (callMapBif "with" [.lit (listValue [.atom "missing"]), .lit twoKeys])

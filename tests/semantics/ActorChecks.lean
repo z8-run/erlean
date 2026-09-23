@@ -104,6 +104,16 @@ def main : IO Unit := do
   assertTrue ((← getProcess suppressed).mailbox == [down])
     "demonitor suppresses in-flight DOWN but preserves already queued DOWN"
 
+  let foreign : Erlean.Runtime.System := {
+    processes := [actor 0 "demonitor" [.reference 3], actor 1 "self" []]
+    monitors := [{ reference := 3, owner := 1, target := 0, registered := true }]
+    nextReference := 4
+    nextPid := 2 }
+  let foreignResult ← takeStep foreign (.run 0)
+  assertTrue ((← getProcess foreignResult).state.control == .ret [.atom "true"] &&
+      foreignResult.monitors == foreign.monitors && foreignResult.pending.isEmpty)
+    "demonitor of another process's monitor is a no-op returning true"
+
   let linked : Erlean.Runtime.System := {
     processes := [actor 0 "unlink" [.pid 1], actor 1 "self" []]
     links := [{ id := 7, left := 0, right := 1, rightActive := true }]

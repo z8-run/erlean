@@ -219,7 +219,9 @@ def request (world : CodeWorld) (system : System) (process : Process)
     match system.monitors.find? (fun monitor => monitor.reference == reference) with
     | none => return ret [.atom "true"]
     | some monitor =>
-      if monitor.owner != process.pid then return badarg
+      -- OTP searches only the caller's own monitors, so another process's
+      -- reference is an unknown monitor: a no-op that returns true.
+      if monitor.owner != process.pid then return ret [.atom "true"]
       let updated := { (ret [.atom "true"]) with
         monitors := system.monitors.map fun (entry : Monitor) =>
           if entry.reference == reference then { entry with enabled := false } else entry }
