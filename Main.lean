@@ -147,6 +147,7 @@ private def executeBatch (path casesPath : String) (fuel : Nat) : IO UInt32 := d
   return 0
 
 private def executeLinked (paths : List String) (moduleName name args : String) : IO UInt32 := do
+  if paths.isEmpty then throw (IO.userError "run-linked requires at least one artifact")
   let reports ← paths.mapM load
   reports.forM complete
   let world := reports.map ModuleReport.module
@@ -208,10 +209,21 @@ private def actorExecute (path name args : String) (tracePath : Option String :=
     IO.eprintln s!"Actor schedule {result.stopped} after {result.choices.length} choices; no liveness conclusion."
     return 2
 
+/-- Identifiers that cannot name the emitted definition. -/
+private def leanKeywords : List String :=
+  ["abbrev", "at", "attribute", "axiom", "by", "calc", "class", "def", "deriving", "do",
+   "else", "end", "example", "export", "for", "from", "fun", "have", "if", "import",
+   "in", "inductive", "instance", "let", "local", "match", "mutual", "namespace", "open",
+   "private", "protected", "section", "set_option", "show", "structure", "suffices",
+   "then", "theorem", "universe", "variable", "where", "with", "Type", "Prop", "Sort"]
+
 /-- Emit an auditable Lean literal, not a claim of verified source translation. -/
 private def emit (path : String) (declaration : String := "importedModule") : IO Unit := do
-  unless !declaration.isEmpty && declaration.toList.all (fun c => c.isAlpha || c == '_') do
-    throw (IO.userError "Declaration name must contain only letters and underscores")
+  unless declaration.toList.head?.any Char.isAlpha &&
+      declaration.toList.all (fun c => c.isAlpha || c == '_') do
+    throw (IO.userError "Declaration name must start with a letter and contain only letters and underscores")
+  if leanKeywords.contains declaration then
+    throw (IO.userError s!"Declaration name {declaration} is a reserved Lean keyword")
   let report ← load path
   complete report
   IO.print (Erlean.Import.Emit.moduleSource report.module declaration)
@@ -224,11 +236,11 @@ def main (args : List String) : IO UInt32 := do
     | ["emit", path, declaration] => emit path declaration; return 0
     | ["run", path, name, values] => execute path name values 100000
     | ["run", path, name, values, fuel] =>
-      let some fuel := fuel.toNat? | throw (IO.userError "Fuel must be a natural number")
+      let some fuel := parseDecimalNat fuel | throw (IO.userError "Fuel must be a natural number")
       execute path name values fuel
     | ["run-batch", path, casesPath] => executeBatch path casesPath 100000
     | ["run-batch", path, casesPath, fuel] =>
-      let some fuel := fuel.toNat? | throw (IO.userError "Fuel must be a natural number")
+      let some fuel := parseDecimalNat fuel | throw (IO.userError "Fuel must be a natural number")
       executeBatch path casesPath fuel
     | "run-linked" :: moduleName :: name :: values :: paths =>
       executeLinked paths moduleName name values

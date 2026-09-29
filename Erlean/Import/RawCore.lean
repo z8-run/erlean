@@ -23,6 +23,19 @@ private def stringField (j : Lean.Json) (key : String) : Except String String :=
 private def isHex (s : String) : Bool :=
   s.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F'))
 
+/-- Strict unsigned decimal: one or more ASCII digits and nothing else. Lean's
+    `String.toNat?` also accepts `_` digit separators, which are not part of the
+    RawCore schema. -/
+def parseDecimalNat (text : String) : Option Nat :=
+  if !text.isEmpty && text.toList.all (fun c => '0' ≤ c && c ≤ '9') then text.toNat? else none
+
+/-- Strict signed decimal: an optional leading `-` followed by a strict unsigned
+    decimal. A leading `+`, separators, and whitespace are rejected. -/
+def parseDecimalInt (text : String) : Option Int :=
+  match text.toList with
+  | '-' :: digits => (parseDecimalNat (String.ofList digits)).map fun n => -(n : Int)
+  | _ => (parseDecimalNat text).map Int.ofNat
+
 /-- The depth bound protects the importer; exhaustion is an import error. -/
 def decodeTerm : Nat → Lean.Json → Except String Term
   | 0, _ => .error "RawCore nesting exceeds the import depth limit"
@@ -31,7 +44,7 @@ def decodeTerm : Nat → Lean.Json → Except String Term
     | "atom" => return .atom (← stringField j "value")
     | "integer" =>
       let s ← stringField j "value"
-      match s.toInt? with
+      match parseDecimalInt s with
       | some n => return .integer n
       | none => throw s!"Invalid integer: {s}"
     | "float" =>
@@ -40,7 +53,7 @@ def decodeTerm : Nat → Lean.Json → Except String Term
       return .float bits
     | "bitstring" =>
       let count ← stringField j "bits"
-      let some bits := count.toNat? | throw "Invalid bitstring length"
+      let some bits := parseDecimalNat count | throw "Invalid bitstring length"
       let hex ← stringField j "hex"
       unless hex.length == 2 * ((bits + 7) / 8) && isHex hex do
         throw "Bitstring byte encoding does not match its length"

@@ -27,6 +27,13 @@ def main : IO Unit := do
   expectError (parseTerm "{\"tag\":\"float\",\"bits\":\"xyz\"}") "invalid float bits"
   expectError (parseTerm "{\"tag\":\"bitstring\",\"bits\":\"9\",\"hex\":\"00\"}")
     "bitstring length mismatch"
+  for text in ["1_000", "+5", "", "-", " 7", "--1"] do
+    expectError (parseTerm ("{\"tag\":\"integer\",\"value\":\"" ++ text ++ "\"}"))
+      s!"noncanonical decimal integer {text}"
+  expectError (parseTerm "{\"tag\":\"bitstring\",\"bits\":\"0_8\",\"hex\":\"00\"}")
+    "noncanonical bitstring length"
+  assertTrue (isOkEq (parseTerm "{\"tag\":\"integer\",\"value\":\"-0\"}") (.integer 0))
+    "negative zero integer text"
   expectError (parseTerm "{\"tag\":\"map\",\"entries\":[[]]}") "malformed map entry"
   assertTrue
     (isOkEq (parseTerm "{\"tag\":\"integer\",\"value\":\"1234567890123456789012345678901234567890\"}")

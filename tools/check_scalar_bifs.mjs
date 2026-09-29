@@ -95,6 +95,8 @@ const cases = [
   ['byte_count', [binary('ab')], 'two bytes'],
   ['byte_count', [emptyBinary], 'empty binary'],
   ['byte_count', [binary('é')], 'non-ASCII byte accounting'],
+  ['byte_count', [{ tag: 'bitstring', bits: '3', hex: 'a0' }], 'partial byte rounds up'],
+  ['byte_count', [{ tag: 'bitstring', bits: '9', hex: 'ff80' }], 'partial trailing byte rounds up'],
   ['element_count', [list([integer(1), integer(2), integer(3)])], 'three elements'],
   ['element_count', [nil], 'empty list count'],
   ['byte_values', [binary('AB')], 'byte extraction order'],
@@ -105,6 +107,7 @@ const cases = [
   ['flatten', [nil], 'empty iolist'],
   ['flatten', [emptyBinary], 'binary outside a list'],
   ['flatten', [list([])], 'nested empty list'],
+  ['flatten', [improper([integer(65)], binary('B'))], 'binary list tail'],
 ];
 
 for (const [name, values, label] of cases) {
@@ -131,6 +134,8 @@ const invalidCases = [
   ['flatten', [list([integer(256)])], 'iolist_to_binary rejects an out-of-range byte'],
   ['flatten', [list([integer(-1)])], 'iolist_to_binary rejects a negative byte'],
   ['flatten', [improper([integer(65)], atom('tail'))], 'iolist_to_binary rejects an improper tail'],
+  ['flatten', [integer(65)], 'iolist_to_binary rejects a bare byte integer'],
+  ['flatten', [improper([integer(65)], integer(66))], 'iolist_to_binary rejects an integer tail'],
 ];
 for (const [name, values, label] of invalidCases) {
   const argumentsJson = JSON.stringify(values);
